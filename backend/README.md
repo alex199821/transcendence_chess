@@ -55,8 +55,62 @@ backend/
 - **FastAPI**: the subject gives points for using a backend framework. FastAPI also checks all input for us and builds the `/api/docs` page automatically.
 - **async (`async def` and `await`)**: the whole backend is one program. While one request waits for the database, it handles other requests. Never put slow blocking code (like `time.sleep`) in an `async def`, because it freezes everyone.
 - **Only one worker (one process)**: live chess games will be kept in memory. Two processes would each have their own separate copy of the games.
-- **SQLAlchemy**: lets us use the database through Python classes instead of writing SQL by hand. The subject gives a point for using an ORM like this.
-- **Alembic**: keeps track of changes to the database tables, so everyone's database (and the evaluator's) ends up the same. It runs automatically every time the backend starts.
+- **SQLAlchemy and Alembic**: see the next section.
+
+## SQLAlchemy and Alembic (how we use the database)
+
+Our data (users, games, friends) lives in **PostgreSQL**. PostgreSQL only understands SQL. These two tools let us work with it from Python, and keep everyone's database the same.
+
+In one sentence each:
+- **SQLAlchemy** is how our code **reads and writes data** (add a user, find a user, ...).
+- **Alembic** is how the **tables themselves** get created and changed (new table, new column, ...).
+
+Both read the same Python classes in `app/models.py`.
+
+### SQLAlchemy
+
+SQLAlchemy is an **ORM**: it connects database tables to Python classes.
+
+- One table = one class in `app/models.py`, and each field in the class is a column.
+- One row in the table = one object of that class.
+
+So instead of writing SQL text, we work with objects:
+
+```python
+# Without SQLAlchemy: SQL written as text
+await conn.execute("INSERT INTO users (email, display_name) VALUES ($1, $2)", email, name)
+
+# With SQLAlchemy: plain Python objects
+session.add(User(email=email, display_name=name))
+await session.commit()
+```
+
+Why we use it:
+- The subject gives **1 point** for using an ORM.
+- Your editor catches typos: `User.emial` is an error right away. Inside an SQL string, the same typo only fails when the code runs.
+- Values are always passed in safely, so SQL injection is hard to do by accident.
+- We can still write plain SQL when that's easier: `text("SELECT ...")`, like `/api/health` in `main.py` does.
+
+Files: `app/db.py` (the connection to the database) and `app/models.py` (the tables).
+
+### Alembic
+
+Our tables will change many times while we build the project: a new table for games, a new column, and so on. Alembic saves each change as a small file in `alembic/versions/`, called a **migration**. It's like a git commit, but for the table structure.
+
+How it works:
+- Each migration file has `upgrade()` (make the change) and `downgrade()` (undo it).
+- Each migration points to the one before it, so together they form a chain: 1st → 2nd → 3rd...
+- The database stores the ID of the last migration it ran, in a tiny table called `alembic_version`.
+- `alembic upgrade head` runs every migration the database doesn't have yet. Our backend does this **automatically every time it starts** (see `entrypoint.sh`).
+
+Why we use it:
+- Everyone's database ends up with exactly the same tables, just by running `make`: yours, your teammates', and the evaluator's fresh copy.
+- Existing data is kept. A migration changes the table instead of deleting it and making a new one.
+- We don't write migration files by hand. Alembic compares `app/models.py` with the real database and writes the file for us. We only read it to check it.
+
+Files: `alembic/env.py` (tells Alembic where the database is and where our table classes are) and `alembic/versions/` (the migrations).
+
+To change a table, follow "Changing the database tables" below.
 
 ## Fake endpoints (important)
 

@@ -78,3 +78,73 @@ class FriendsOverview(BaseModel):
     friends: list[UserPublic]
     incoming: list[FriendRequest]  # people who want to be your friend
     outgoing: list[FriendRequest]  # people you asked, still waiting
+    
+
+
+# ---------- games ----------
+
+class LiveGame(BaseModel):
+    """A game being played right now (for the list of games you can watch)."""
+
+    id: int
+    white: UserPublic
+    black: UserPublic
+    started_at: datetime
+    move_count: int
+    spectators: int  # how many people are watching
+
+
+class GameSummary(BaseModel):
+    """A finished game, as one line in someone's match history."""
+
+    id: int
+    white: UserPublic
+    black: UserPublic
+    result: str  # "1-0" = white won, "0-1" = black won, "1/2-1/2" = draw
+    termination: str  # how it ended, e.g. "checkmate", "resignation", "timeout"
+    ended_at: datetime
+
+
+class GameDetail(GameSummary):
+    """A finished game with all its moves (for replaying it)."""
+
+    started_at: datetime
+    pgn: str  # all the moves, in standard chess notation
+
+
+# ---------- stats ----------
+
+class RatingPoint(BaseModel):
+    """A player's rating after one game (one dot on the progress chart)."""
+
+    date: datetime
+    elo: int
+
+
+class UserStats(BaseModel):
+    """A player's numbers for their profile page."""
+
+    wins: int
+    losses: int
+    draws: int
+    elo: int
+    rating_history: list[RatingPoint]  # oldest first
+
+
+class Achievement(BaseModel):
+    """A badge a player can unlock."""
+
+    code: str  # short fixed name, e.g. "first_win"
+    name: str
+    description: str
+    unlocked_at: datetime | None  # None = not unlocked yet
+
+
+class LeaderboardEntry(BaseModel):
+    """One line on the leaderboard."""
+
+    rank: int  # 1 = best
+    user: UserPublic
+    wins: int
+    losses: int
+    draws: int
