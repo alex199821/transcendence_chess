@@ -7,8 +7,14 @@ The server side of our online chess game. It stores users and games in a databas
 From the project root (the folder above this one):
 
 ```bash
-cp .env.example .env    # only the first time, then put your own password in .env
+cp .env.example .env    # only the first time
 make                    # builds and starts everything
+```
+
+In `.env`, set your own `POSTGRES_PASSWORD` and a `JWT_SECRET`, the key that signs login tokens. Make the key with `openssl rand -hex 32`; under 32 characters, the backend won't start. Already have a `.env`? Add the key like this:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 ```
 
 Then open:
@@ -124,6 +130,8 @@ grep -rn "STUB" backend/app
 
 Nothing marked `STUB` may be left when the project is evaluated.
 
+Login is already real. Register or log in first; otherwise endpoints that need a user answer 401.
+
 ## Changing the database tables
 
 1. Edit the classes in `app/models.py`.
@@ -150,6 +158,7 @@ Nothing marked `STUB` may be left when the project is evaluated.
 | Restart only the backend (doesn't load code changes, use `make` for that) | `docker compose restart backend` |
 | See backend errors | `docker compose logs backend --tail 20` |
 | Look inside the database | `docker compose exec db psql -U chess` (use the user from `.env`) |
+| Run the tests | `docker compose exec backend pytest -v` |
 
 **The website shows "502 Bad Gateway"?** The backend crashed. Run the logs command above: the last line says why, usually a typo or a wrong import.
 
@@ -158,10 +167,28 @@ Nothing marked `STUB` may be left when the project is evaluated.
 Done:
 - Docker setup, HTTPS through nginx, database connection
 - `users` table + automatic database updates (Alembic)
-- Fake endpoints for login/register, users, friends
+- Fake endpoints for users, friends, games, stats
+- Real register/login/logout (hashed passwords, login cookie) + automatic tests
 
 Next:
-- Fake endpoints for games and stats
 - Fake live game over WebSockets (Socket.IO)
-- Real login/register (password hashing, login cookie)
-- The real chess game (moves checked on the server, clocks, reconnecting)
+- The real chess game (moves checked on the server, reconnecting)
+
+## Tests
+
+The automatic tests are in `tests/`:
+- Each `test_*.py` file checks one part. For example, `test_auth.py` covers register, login, logout and bad tokens.
+- `configuration_tests.py` is the shared setup: the test database and the `client` fake browser. `pytest.ini` tells pytest to load it.
+
+Run them while the app is running. Run `make` first so the tests use your latest code:
+
+```bash
+docker compose exec backend pytest -v
+```
+
+Every test should say `PASSED`.
+
+- Tests use their own database, `chess_test`. It's created automatically and emptied before each test, so your real data is never touched.
+- Run one file: `docker compose exec backend pytest -v tests/test_auth.py`
+- Run one test by name: `docker compose exec backend pytest -v -k test_logout`
+- To add a test, write a function whose name starts with `test_` in a `test_*.py` file. Give it a `client` parameter to get a fake browser that keeps cookies like a real one.
