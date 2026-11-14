@@ -1,7 +1,7 @@
 # STUB: fake data for the API contract. Delete this file once every endpoint is real.
 from datetime import UTC, datetime
 
-from app.schemas import UserMe, UserPublic
+from app.schemas import FriendRequest, UserMe, UserPublic
 
 DEFAULT_AVATAR = "/avatars/default.png"
 
@@ -20,4 +20,11 @@ USERS: list[UserPublic] = [
     ME,
     UserPublic(id=2, display_name="magnus", avatar_url=DEFAULT_AVATAR, elo=1450, online=True),
     UserPublic(id=3, display_name="hikaru", avatar_url=DEFAULT_AVATAR, elo=1380, online=False),
+]
+
+# magnus is already your friend, hikaru sent you a request
+FRIENDS: list[UserPublic] = [USERS[1]]
+
+FRIEND_REQUESTS: list[FriendRequest] = [
+    FriendRequest(id=1, from_user=USERS[2], to_user=ME, created_at=datetime(2026, 11, 10, tzinfo=UTC)),
 ]

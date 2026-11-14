@@ -56,3 +56,25 @@ class UserMe(UserPublic):
     email: EmailStr
     totp_enabled: bool
     created_at: datetime
+    
+# ---------- friends ----------
+
+class NewFriendRequest(RequestBody):
+    """What the client sends to ask someone to be friends."""
+
+    user_id: int
+
+
+class FriendRequest(BaseModel):
+    id: int
+    from_user: UserPublic
+    to_user: UserPublic
+    created_at: datetime
+
+
+class FriendsOverview(BaseModel):
+    """Everything the friends page needs, in one response."""
+
+    friends: list[UserPublic]
+    incoming: list[FriendRequest]  # people who want to be your friend
+    outgoing: list[FriendRequest]  # people you asked, still waiting
