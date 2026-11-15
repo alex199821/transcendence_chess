@@ -5,10 +5,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import User
-from app.schemas import UserMe
+from app.schemas import UserMe, UserPublic
 from app.security import COOKIE_NAME, read_token
+from app.sockets import is_online
 
 DEFAULT_AVATAR = "/avatars/default.png"
+
+
+def to_user_public(user: User) -> UserPublic:
+    """What anyone can see about a user."""
+    return UserPublic(
+        id=user.id,
+        display_name=user.display_name,
+        avatar_url=user.avatar_path or DEFAULT_AVATAR,
+        elo=user.elo,
+        online=is_online(user.id),
+    )
 
 
 def to_user_me(user: User) -> UserMe:

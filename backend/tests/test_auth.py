@@ -1,11 +1,24 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from sqlalchemy import select
 
 from app.config import settings
+from app.models import User
+from tests.configuration_tests import TestSession
 
 NEW_USER = {"email": "alex@test.com", "display_name": "alex", "password": "secret123"}
+
+
+def load_user(email):
+    """Read a user straight from the test database."""
+    async def load():
+        async with TestSession() as session:
+            return await session.scalar(select(User).where(User.email == email))
+
+    return asyncio.run(load())
 
 
 def register(client, **changes):
@@ -52,6 +65,13 @@ def test_login_cookie_is_protected(client):
     assert "httponly" in cookie
     assert "secure" in cookie
     assert "samesite=lax" in cookie
+
+
+def test_password_is_stored_as_a_hash(client):
+    register(client)
+    password_hash = load_user("alex@test.com").password_hash
+    assert password_hash != "secret123"
+    assert password_hash.startswith("$argon2id$")
 
 
 def test_email_is_saved_lowercase(client):
@@ -112,6 +132,17 @@ def test_login_fails(client, email, password):
     assert r.status_code == 401
     assert r.json()["detail"] == "Wrong email or password"
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_account_without_password_cannot_log_in(client):
+    """Accounts made with "Log in with 42" have no password: password login must not work for them."""
+    async def add_user():
+        async with TestSession() as session:
+            session.add(User(email="intra@test.com", display_name="intra", intra_id=42))
+            await session.commit()
+
+    asyncio.run(add_user())
+    assert login(client, "intra@test.com", "anything1").status_code == 401
 
 
 def test_logout(client):

@@ -177,7 +177,11 @@ Next:
 ## Tests
 
 The automatic tests are in `tests/`:
-- Each `test_*.py` file checks one part. For example, `test_auth.py` covers register, login, logout and bad tokens.
+- Each `test_*.py` file checks one part:
+  - `test_auth.py`: register, login, logout, bad tokens
+  - `test_sockets.py`: connecting, online status, matchmaking, moves
+  - `test_live_games.py`: chess helpers (whose turn, legal moves, game endings)
+  - `test_health.py`: the server and database are up
 - `configuration_tests.py` is the shared setup: the test database and the `client` fake browser. `pytest.ini` tells pytest to load it.
 
 Run them while the app is running. Run `make` first so the tests use your latest code:
@@ -192,3 +196,28 @@ Every test should say `PASSED`.
 - Run one file: `docker compose exec backend pytest -v tests/test_auth.py`
 - Run one test by name: `docker compose exec backend pytest -v -k test_logout`
 - To add a test, write a function whose name starts with `test_` in a `test_*.py` file. Give it a `client` parameter to get a fake browser that keeps cookies like a real one.
+
+## Live events (Socket.IO)
+
+Connect to `/socket.io` while logged in; the login cookie is sent automatically.
+
+| Direction | Event | Data |
+|---|---|---|
+| browser → server | `find_game` | nothing. Wait for an opponent |
+| browser → server | `cancel_search` | nothing. Stop waiting |
+| server → browser | `game_started` | `{game_id, white: {id, display_name, elo}, black: {...}}`. Your color: compare your id with `white.id` |
+| browser → server | `move` | `"e2e4"` (from + to square; `"e7e8q"` = promote to a queen) |
+| server → browser | `game_state` | `{game_id, fen, turn: "white"/"black", last_move}`. After every move, to both players |
+| server → browser | `move_rejected` | `{reason}`, only to you: "Not your turn", "Illegal move", "You are not in a game" |
+| browser → server | `resign` | nothing. You lose |
+| browser → server | `rejoin_game` | nothing. Send it after every (re)connect: "am I in a game?" |
+| server → browser | `game_resumed` | Same as `game_state` plus `{white, black}`. Only if you are in a game |
+| server → browser | `opponent_left` | `{seconds: 60}`. Your opponent closed the site; if they don't come back in time, you win (`termination: "abandoned"`) |
+| server → browser | `opponent_back` | nothing. Your opponent came back in time |
+| browser → server | `watch_game` | `game_id` (a number). Watch a running game |
+| server → browser | `watching` | Same as `game_resumed`. After it you get every `game_state` and the `game_over` of that game |
+| server → browser | `watch_rejected` | `{reason}`. That game is not being played |
+| browser → server | `stop_watching` | `game_id`. Closing the tab also stops it |
+| browser → server | `join_lobby` / `leave_lobby` | nothing. Send it while your page shows the list of live games |
+| server → browser | `live_games_changed` | nothing. Only to the lobby: a game started or ended, so reload `GET /api/games/live` |
+| server → browser | `game_over` | Same as `game_state` plus `{result: "1-0"/"0-1"/"1/2-1/2", termination, winner_id}`. To both players, instead of the last `game_state`. `winner_id` is `null` for a draw. `termination`: `checkmate`, `stalemate`, `insufficient_material`, `threefold_repetition`, `fifty_moves`, `resignation`, ... |

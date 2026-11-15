@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
+from app import sockets
 from app.db import Base, get_session
+from app.live_games import queue, running_games
 from app.main import app
 
 # Tests use their own database ("chess" -> "chess_test"), so your real data is never touched.
@@ -43,6 +45,9 @@ async def get_test_session():
 # Every endpoint that asks for get_session gets a test-database session instead.
 app.dependency_overrides[get_session] = get_test_session
 
+# Socket events open their own database sessions: point them at the test database too.
+sockets.SessionLocal = TestSession
+
 asyncio.run(create_test_database())
 
 
@@ -50,5 +55,9 @@ asyncio.run(create_test_database())
 def client():
     """A fake browser: sends requests straight to our app and keeps cookies. Fresh tables each test."""
     asyncio.run(empty_tables())
+    queue.clear()  # forget players and games from the previous test
+    running_games.clear()
+    sockets.connections.clear()
+    sockets.leave_timers.clear()
     with TestClient(app, base_url="https://testserver") as c:
         yield c
