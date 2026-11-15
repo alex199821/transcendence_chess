@@ -208,3 +208,5 @@ Connect to `/socket.io` while logged in; the login cookie is sent automatically.
 | browser → server | `move` | `"e2e4"` (from + to square; `"e7e8q"` = promote to a queen) |
 | server → browser | `game_state` | `{game_id, fen, turn: "white"/"black", last_move}`. After every move, to both players |
 | server → browser | `move_rejected` | `{reason}`, only to you: "Not your turn", "Illegal move", "You are not in a game" |
+| browser → server | `resign` | nothing. You lose |
+| server → browser | `game_over` | Same as `game_state` plus `{result: "1-0"/"0-1"/"1/2-1/2", termination, winner_id}`. To both players, instead of the last `game_state`. `winner_id` is `null` for a draw. `termination`: `checkmate`, `stalemate`, `insufficient_material`, `threefold_repetition`, `fifty_moves`, `resignation`, ... |

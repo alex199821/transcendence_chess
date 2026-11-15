@@ -51,3 +51,20 @@ def state_of(game: RunningGame) -> dict:
         "turn": "white" if board.turn == chess.WHITE else "black",
         "last_move": board.peek().uci() if board.move_stack else None,
     }
+
+
+def ending_of(board: chess.Board) -> tuple[str, str] | None:
+    """(result, how it ended) if the game is over, e.g. ("0-1", "checkmate"). None if it goes on."""
+    outcome = board.outcome()  # checkmate, stalemate, not enough pieces to mate, ...
+    if outcome is not None:
+        return outcome.result(), outcome.termination.name.lower()
+    if board.is_repetition(3):  # same position 3 times
+        return "1/2-1/2", "threefold_repetition"
+    if board.is_fifty_moves():  # 50 moves each without a capture or pawn move
+        return "1/2-1/2", "fifty_moves"
+    return None
+
+
+def pgn_of(board: chess.Board, result: str) -> str:
+    """All moves in standard chess notation, e.g. "1. f3 e5 2. g4 Qh4# 0-1"."""
+    return f"{chess.Board().variation_san(board.move_stack)} {result}".strip()

@@ -2,6 +2,7 @@ import asyncio
 import json
 import time
 
+import chess
 import pytest
 from sqlalchemy.exc import IntegrityError
 
@@ -193,14 +194,84 @@ def test_move_when_not_in_a_game(client):
     assert cat.receive() == ("move_rejected", {"reason": "You are not in a game"})
 
 
-def test_after_checkmate_no_move_is_legal(client):
-    white, black = start_game(client)
-    for tab, uci in [(white, "f2f3"), (black, "e7e5"), (white, "g2g4"), (black, "d8h4")]:  # Fool's mate
-        tab.emit("move", uci)
+# ---------- game endings ----------
+
+def play(white, black, moves):
+    """Play these moves in turn (white first) and read both players' answers."""
+    for i, uci in enumerate(moves):
+        (white if i % 2 == 0 else black).emit("move", uci)
         white.receive()
         black.receive()
+
+
+def test_checkmate_ends_the_game(client):
+    white, black = start_game(client)
+    play(white, black, ["f2f3", "e7e5", "g2g4"])
+    black.emit("move", "d8h4")  # checkmate
+
+    event, over = white.receive()
+    assert event == "game_over"
+    assert black.receive() == (event, over)
+    assert over["result"] == "0-1"
+    assert over["termination"] == "checkmate"
+    assert over["winner_id"] == black.user_id
+    assert over["last_move"] == "d8h4"
+
+    row = load_game(over["game_id"])  # saved in the database
+    assert row.result == "0-1"
+    assert row.termination == "checkmate"
+    assert row.pgn == "1. f3 e5 2. g4 Qh4# 0-1"
+    assert row.ended_at is not None
+
     white.emit("move", "a2a3")
-    assert white.receive() == ("move_rejected", {"reason": "Illegal move"})
+    assert white.receive() == ("move_rejected", {"reason": "You are not in a game"})
+
+
+def test_a_whole_real_game(client):
+    """The Opera Game (Morphy, 1858): captures, checks, castling, and a checkmate at the end."""
+    opera_game = (
+        "e4 e5 Nf3 d6 d4 Bg4 dxe5 Bxf3 Qxf3 dxe5 Bc4 Nf6 Qb3 Qe7 Nc3 c6 Bg5 b5 Nxb5 cxb5 "
+        "Bxb5+ Nbd7 O-O-O Rd8 Rxd7 Rxd7 Rd1 Qe6 Bxd7+ Nxd7 Qb8+ Nxb8 Rd8#"
+    )
+    board = chess.Board()  # only used to turn "Nf3" into "g1f3", the format our server wants
+    moves = [board.push_san(san).uci() for san in opera_game.split()]
+
+    white, black = start_game(client)
+    play(white, black, moves[:-1])
+    white.emit("move", moves[-1])  # Rd8#
+    event, over = black.receive()
+    assert event == "game_over"
+    assert (over["result"], over["termination"], over["winner_id"]) == ("1-0", "checkmate", white.user_id)
+    assert load_game(over["game_id"]).pgn.endswith("16. Qb8+ Nxb8 17. Rd8# 1-0")
+
+
+def test_threefold_repetition_is_a_draw(client):
+    white, black = start_game(client)
+    moves = ["g1f3", "g8f6", "f3g1", "f6g8"] * 2
+    play(white, black, moves[:-1])
+    black.emit("move", moves[-1])
+    event, over = white.receive()
+    assert event == "game_over"
+    assert (over["result"], over["termination"], over["winner_id"]) == ("1/2-1/2", "threefold_repetition", None)
+
+
+def test_resign(client):
+    white, black = start_game(client)
+    white.emit("resign")
+    event, over = black.receive()
+    assert event == "game_over"
+    assert white.receive() == (event, over)
+    assert (over["result"], over["termination"], over["winner_id"]) == ("0-1", "resignation", black.user_id)
+    assert load_game(over["game_id"]).pgn == "0-1"
+
+
+def test_after_the_game_you_can_play_again(client):
+    white, black = start_game(client)
+    white.emit("resign")
+    white.receive()
+    black.receive()
+    white.emit("find_game")
+    assert wait_until(lambda: queue == [white.user_id])
 
 
 # ---------- games table ----------

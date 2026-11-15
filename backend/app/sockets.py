@@ -7,8 +7,10 @@ from starlette.requests import cookie_parser
 from app.db import SessionLocal
 from app.live_games import (
     RunningGame,
+    ending_of,
     game_of,
     legal_move,
+    pgn_of,
     queue,
     running_games,
     state_of,
@@ -16,6 +18,7 @@ from app.live_games import (
 )
 from app.models import Game, User
 from app.security import COOKIE_NAME, read_token
+from datetime import UTC, datetime
 
 sio = socketio.AsyncServer(async_mode="asgi")
 
@@ -121,4 +124,38 @@ async def move(sid, uci=None):
         return
 
     game.board.push(chess_move)
-    await send_to_players(game, "game_state", state_of(game))
+    ending = ending_of(game.board)
+    if ending is None:
+        await send_to_players(game, "game_state", state_of(game))
+    else:
+        await finish_game(game, *ending)
+
+
+@sio.event
+async def resign(sid):
+    user_id = (await sio.get_session(sid))["user_id"]
+    game = game_of(user_id)
+    if game is None:
+        return
+    result = "0-1" if user_id == game.white_id else "1-0"  # the other player wins
+    await finish_game(game, result, "resignation")
+
+
+async def finish_game(game: RunningGame, result: str, termination: str) -> None:
+    """The game is over: free both players, save the result, tell both players."""
+    del running_games[game.id]  # first, before any await: from now on nobody can move here
+
+    async with SessionLocal() as session:
+        row = await session.get(Game, game.id)
+        row.result = result
+        row.termination = termination
+        row.pgn = pgn_of(game.board, result)
+        row.ended_at = datetime.now(UTC)
+        await session.commit()
+
+    winner_id = {"1-0": game.white_id, "0-1": game.black_id}.get(result)  # None = draw
+    await send_to_players(
+        game,
+        "game_over",
+        {**state_of(game), "result": result, "termination": termination, "winner_id": winner_id},
+    )
