@@ -10,6 +10,7 @@ from app.live_games import (
     ending_of,
     game_of,
     legal_move,
+    other_player,
     pgn_of,
     queue,
     running_games,
@@ -28,6 +29,11 @@ connections: dict[int, set[str]] = {}
 # only one "find_game" at a time, so nobody gets paired twice
 matchmaking_lock = asyncio.Lock()
 
+# a player who leaves a running game has this long to come back, otherwise they lose
+RECONNECT_SECONDS = 60
+
+# user id -> timer that makes this player lose if they don't come back in time
+leave_timers: dict[int, asyncio.Task] = {}
 
 def is_online(user_id: int) -> bool:
     return user_id in connections
@@ -51,7 +57,9 @@ async def connect(sid, environ, auth):
     await sio.save_session(sid, {"user_id": user_id})
     await sio.enter_room(sid, f"user:{user_id}")
     connections.setdefault(user_id, set()).add(sid)
-
+    if stop_leave_timer(user_id):  # was gone from a game and came back in time
+        game = game_of(user_id)
+        await sio.emit("opponent_back", {}, room=f"user:{other_player(game, user_id)}")
 
 @sio.event
 async def disconnect(sid):
@@ -61,7 +69,11 @@ async def disconnect(sid):
         del connections[user_id]
         if user_id in queue:
             queue.remove(user_id)
-
+        game = game_of(user_id)
+        if game is not None:
+            leave_timers[user_id] = asyncio.create_task(lose_if_not_back(game, user_id))
+            opponent_room = f"user:{other_player(game, user_id)}"
+            await sio.emit("opponent_left", {"seconds": RECONNECT_SECONDS}, room=opponent_room)
 
 @sio.event
 async def find_game(sid):
@@ -144,7 +156,9 @@ async def resign(sid):
 async def finish_game(game: RunningGame, result: str, termination: str) -> None:
     """The game is over: free both players, save the result, tell both players."""
     del running_games[game.id]  # first, before any await: from now on nobody can move here
-
+    stop_leave_timer(game.white_id)
+    stop_leave_timer(game.black_id)
+    
     async with SessionLocal() as session:
         row = await session.get(Game, game.id)
         row.result = result
@@ -159,3 +173,34 @@ async def finish_game(game: RunningGame, result: str, termination: str) -> None:
         "game_over",
         {**state_of(game), "result": result, "termination": termination, "winner_id": winner_id},
     )
+    
+
+@sio.event
+async def rejoin_game(sid):
+    """The browser asks "am I in a game?" after (re)connecting. If yes, send the whole game."""
+    user_id = (await sio.get_session(sid))["user_id"]
+    game = game_of(user_id)
+    if game is None:
+        return
+    async with SessionLocal() as session:
+        white = await session.get(User, game.white_id)
+        black = await session.get(User, game.black_id)
+    info = {**state_of(game), "white": player_info(white), "black": player_info(black)}
+    await sio.emit("game_resumed", info, to=sid)
+
+
+async def lose_if_not_back(game: RunningGame, user_id: int) -> None:
+    """Runs in the background after a player left a game. Cancelled if they come back."""
+    await asyncio.sleep(RECONNECT_SECONDS)
+    del leave_timers[user_id]  # this timer is done
+    result = "0-1" if user_id == game.white_id else "1-0"  # the other player wins
+    await finish_game(game, result, "abandoned")
+
+
+def stop_leave_timer(user_id: int) -> bool:
+    """Cancel this player's "come back or lose" timer. True if there was one."""
+    timer = leave_timers.pop(user_id, None)
+    if timer is None:
+        return False
+    timer.cancel()
+    return True

@@ -68,3 +68,8 @@ def ending_of(board: chess.Board) -> tuple[str, str] | None:
 def pgn_of(board: chess.Board, result: str) -> str:
     """All moves in standard chess notation, e.g. "1. f3 e5 2. g4 Qh4# 0-1"."""
     return f"{chess.Board().variation_san(board.move_stack)} {result}".strip()
+
+
+def other_player(game: RunningGame, user_id: int) -> int:
+    """The opponent of this player."""
+    return game.black_id if user_id == game.white_id else game.white_id

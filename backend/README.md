@@ -180,7 +180,8 @@ The automatic tests are in `tests/`:
 - Each `test_*.py` file checks one part:
   - `test_auth.py`: register, login, logout, bad tokens
   - `test_sockets.py`: connecting, online status, matchmaking, moves
-  - `test_live_games.py`: chess helpers (whose turn, legal moves)
+  - `test_live_games.py`: chess helpers (whose turn, legal moves, game endings)
+  - `test_health.py`: the server and database are up
 - `configuration_tests.py` is the shared setup: the test database and the `client` fake browser. `pytest.ini` tells pytest to load it.
 
 Run them while the app is running. Run `make` first so the tests use your latest code:
@@ -209,4 +210,8 @@ Connect to `/socket.io` while logged in; the login cookie is sent automatically.
 | server → browser | `game_state` | `{game_id, fen, turn: "white"/"black", last_move}`. After every move, to both players |
 | server → browser | `move_rejected` | `{reason}`, only to you: "Not your turn", "Illegal move", "You are not in a game" |
 | browser → server | `resign` | nothing. You lose |
+| browser → server | `rejoin_game` | nothing. Send it after every (re)connect: "am I in a game?" |
+| server → browser | `game_resumed` | Same as `game_state` plus `{white, black}`. Only if you are in a game |
+| server → browser | `opponent_left` | `{seconds: 60}`. Your opponent closed the site; if they don't come back in time, you win (`termination: "abandoned"`) |
+| server → browser | `opponent_back` | nothing. Your opponent came back in time |
 | server → browser | `game_over` | Same as `game_state` plus `{result: "1-0"/"0-1"/"1/2-1/2", termination, winner_id}`. To both players, instead of the last `game_state`. `winner_id` is `null` for a draw. `termination`: `checkmate`, `stalemate`, `insufficient_material`, `threefold_repetition`, `fifty_moves`, `resignation`, ... |

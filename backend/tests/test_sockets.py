@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app import sockets
-from app.live_games import queue
+from app.live_games import queue, running_games
 from app.models import Game
 from app.security import COOKIE_NAME, create_token, read_token
 from tests.configuration_tests import TestSession
@@ -272,6 +272,66 @@ def test_after_the_game_you_can_play_again(client):
     black.receive()
     white.emit("find_game")
     assert wait_until(lambda: queue == [white.user_id])
+
+
+# ---------- leaving and coming back ----------
+
+@pytest.fixture
+def short_timer(monkeypatch):
+    """60 s is too long for a test: give players 0.3 s to come back."""
+    monkeypatch.setattr(sockets, "RECONNECT_SECONDS", 0.3)
+
+
+def test_not_coming_back_loses(client, short_timer):
+    white, black = start_game(client)
+    white.close()  # white closes the last tab
+    assert black.receive() == ("opponent_left", {"seconds": 0.3})
+
+    event, over = black.receive()  # 0.3 s later
+    assert event == "game_over"
+    assert (over["result"], over["termination"], over["winner_id"]) == ("0-1", "abandoned", black.user_id)
+    assert load_game(over["game_id"]).termination == "abandoned"
+
+
+def test_coming_back_in_time_continues_the_game(client, short_timer):
+    white, black = start_game(client)
+    play(white, black, ["e2e4"])
+    white.close()
+    assert black.receive()[0] == "opponent_left"
+
+    white = Tab(client, create_token(white.user_id))  # white opens the site again
+    assert black.receive() == ("opponent_back", {})
+    white.emit("rejoin_game")
+    event, game = white.receive()
+    assert event == "game_resumed"
+    assert game["last_move"] == "e2e4"
+    assert game["turn"] == "black"
+    assert game["white"]["id"] == white.user_id
+
+    time.sleep(0.5)  # longer than the timer: the game must still be running
+    assert len(running_games) == 1
+    black.emit("move", "e7e5")  # and the game goes on
+    assert white.receive()[0] == "game_state"
+    assert black.receive()[0] == "game_state"
+
+
+def test_a_second_tab_closing_does_not_count_as_leaving(client, short_timer):
+    white, black = start_game(client)
+    second_tab = Tab(client, create_token(white.user_id))
+    second_tab.close()
+    time.sleep(0.5)
+    assert sockets.leave_timers == {}
+    assert len(running_games) == 1
+
+
+def test_game_ending_stops_the_timer(client, short_timer):
+    white, black = start_game(client)
+    white.close()
+    black.receive()  # opponent_left
+    black.emit("resign")  # black gives up while white is gone
+    event, over = black.receive()
+    assert (over["result"], over["termination"]) == ("1-0", "resignation")
+    assert sockets.leave_timers == {}
 
 
 # ---------- games table ----------

@@ -58,5 +58,6 @@ def client():
     queue.clear()  # forget players and games from the previous test
     running_games.clear()
     sockets.connections.clear()
+    sockets.leave_timers.clear()
     with TestClient(app, base_url="https://testserver") as c:
         yield c
