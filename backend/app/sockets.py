@@ -100,7 +100,7 @@ async def find_game(sid):
     info = {"game_id": game.id, "white": player_info(white), "black": player_info(black)}
     await sio.emit("game_started", info, room=f"user:{white_id}")
     await sio.emit("game_started", info, room=f"user:{black_id}")
-
+    await sio.emit("live_games_changed", room="lobby")
 
 @sio.event
 async def cancel_search(sid):
@@ -111,8 +111,10 @@ async def cancel_search(sid):
 
 
 async def send_to_players(game: RunningGame, event: str, data: dict) -> None:
+    """Send to both players and to everyone watching the game."""
     await sio.emit(event, data, room=f"user:{game.white_id}")
     await sio.emit(event, data, room=f"user:{game.black_id}")
+    await sio.emit(event, data, room=f"game:{game.id}")
 
 
 async def reject(sid: str, reason: str) -> None:
@@ -173,6 +175,8 @@ async def finish_game(game: RunningGame, result: str, termination: str) -> None:
         "game_over",
         {**state_of(game), "result": result, "termination": termination, "winner_id": winner_id},
     )
+    await sio.close_room(f"game:{game.id}")  # spectators stop following this game
+    await sio.emit("live_games_changed", room="lobby")
     
 
 @sio.event
@@ -204,3 +208,42 @@ def stop_leave_timer(user_id: int) -> bool:
         return False
     timer.cancel()
     return True
+
+
+
+# ---------- spectators ----------
+
+def spectator_count(game_id: int) -> int:
+    return len(list(sio.manager.get_participants("/", f"game:{game_id}")))
+
+
+@sio.event
+async def watch_game(sid, game_id=None):
+    """Watch a running game: get the whole game now, then every move and the end."""
+    game = running_games.get(game_id) if isinstance(game_id, int) else None
+    if game is not None:
+        async with SessionLocal() as session:
+            white = await session.get(User, game.white_id)
+            black = await session.get(User, game.black_id)
+    if game is None or game.id not in running_games:  # not running, or ended while we loaded
+        await sio.emit("watch_rejected", {"reason": "This game is not being played"}, to=sid)
+        return
+    await sio.enter_room(sid, f"game:{game.id}")
+    info = {**state_of(game), "white": player_info(white), "black": player_info(black)}
+    await sio.emit("watching", info, to=sid)
+
+
+@sio.event
+async def stop_watching(sid, game_id=None):
+    await sio.leave_room(sid, f"game:{game_id}")
+
+
+@sio.event
+async def join_lobby(sid):
+    """The browser shows the list of live games: tell it whenever a game starts or ends."""
+    await sio.enter_room(sid, "lobby")
+
+
+@sio.event
+async def leave_lobby(sid):
+    await sio.leave_room(sid, "lobby")

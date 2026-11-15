@@ -214,4 +214,10 @@ Connect to `/socket.io` while logged in; the login cookie is sent automatically.
 | server → browser | `game_resumed` | Same as `game_state` plus `{white, black}`. Only if you are in a game |
 | server → browser | `opponent_left` | `{seconds: 60}`. Your opponent closed the site; if they don't come back in time, you win (`termination: "abandoned"`) |
 | server → browser | `opponent_back` | nothing. Your opponent came back in time |
+| browser → server | `watch_game` | `game_id` (a number). Watch a running game |
+| server → browser | `watching` | Same as `game_resumed`. After it you get every `game_state` and the `game_over` of that game |
+| server → browser | `watch_rejected` | `{reason}`. That game is not being played |
+| browser → server | `stop_watching` | `game_id`. Closing the tab also stops it |
+| browser → server | `join_lobby` / `leave_lobby` | nothing. Send it while your page shows the list of live games |
+| server → browser | `live_games_changed` | nothing. Only to the lobby: a game started or ended, so reload `GET /api/games/live` |
 | server → browser | `game_over` | Same as `game_state` plus `{result: "1-0"/"0-1"/"1/2-1/2", termination, winner_id}`. To both players, instead of the last `game_state`. `winner_id` is `null` for a draw. `termination`: `checkmate`, `stalemate`, `insufficient_material`, `threefold_repetition`, `fifty_moves`, `resignation`, ... |

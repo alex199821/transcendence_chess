@@ -43,8 +43,8 @@ class Tab:
 
     def receive(self):
         """Wait for the next event. Returns (name, data)."""
-        event, data = json.loads(self.read()[2:])
-        return event, data
+        message = json.loads(self.read()[2:])  # ["event"] or ["event", data]
+        return message[0], (message[1] if len(message) > 1 else None)
 
     def close(self):
         self.send("41")
@@ -332,6 +332,79 @@ def test_game_ending_stops_the_timer(client, short_timer):
     event, over = black.receive()
     assert (over["result"], over["termination"]) == ("1-0", "resignation")
     assert sockets.leave_timers == {}
+
+
+# ---------- spectators ----------
+
+def test_spectator_sees_the_board_every_move_and_the_end(client):
+    white, black = start_game(client)
+    game_id = next(iter(running_games))
+    cat = Tab(client, new_user(client, "cat"))
+    cat.emit("watch_game", game_id)
+    event, game = cat.receive()
+    assert event == "watching"
+    assert game["fen"] == chess.STARTING_FEN
+    assert (game["white"]["id"], game["black"]["id"]) == (white.user_id, black.user_id)
+
+    play(white, black, ["e2e4"])
+    event, state = cat.receive()
+    assert (event, state["last_move"]) == ("game_state", "e2e4")
+
+    black.emit("resign")
+    event, over = cat.receive()
+    assert (event, over["termination"]) == ("game_over", "resignation")
+
+
+@pytest.mark.parametrize("game_id", [999, "1", None])
+def test_cannot_watch_a_game_that_is_not_running(client, game_id):
+    start_game(client)  # game 1 is running, but "1" is text, not a number
+    cat = Tab(client, new_user(client, "cat"))
+    cat.emit("watch_game", game_id)
+    assert cat.receive() == ("watch_rejected", {"reason": "This game is not being played"})
+
+
+def test_stop_watching(client):
+    start_game(client)
+    game_id = next(iter(running_games))
+    cat = Tab(client, new_user(client, "cat"))
+    cat.emit("watch_game", game_id)
+    cat.receive()
+    assert sockets.spectator_count(game_id) == 1
+    cat.emit("stop_watching", game_id)
+    assert wait_until(lambda: sockets.spectator_count(game_id) == 0)
+
+
+def test_lobby_hears_when_games_start_and_end(client):
+    cat = Tab(client, new_user(client, "cat"))
+    cat.emit("join_lobby")
+    assert wait_until(lambda: len(list(sockets.sio.manager.get_participants("/", "lobby"))) == 1)
+
+    white, _ = start_game(client)
+    assert cat.receive() == ("live_games_changed", None)
+    white.emit("resign")
+    assert cat.receive() == ("live_games_changed", None)
+
+
+def test_live_games_list(client):
+    assert client.get("/api/games/live").json() == []
+
+    white, black = start_game(client)
+    play(white, black, ["e2e4"])
+    game_id = next(iter(running_games))
+    cat = Tab(client, new_user(client, "cat"))
+    cat.emit("watch_game", game_id)
+    cat.receive()
+
+    [game] = client.get("/api/games/live").json()
+    assert game["id"] == game_id
+    assert (game["white"]["id"], game["black"]["id"]) == (white.user_id, black.user_id)
+    assert game["white"]["online"] is True
+    assert game["move_count"] == 1
+    assert game["spectators"] == 1
+
+    white.emit("resign")
+    white.receive()
+    assert client.get("/api/games/live").json() == []
 
 
 # ---------- games table ----------
