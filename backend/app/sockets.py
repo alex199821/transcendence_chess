@@ -5,7 +5,15 @@ import socketio
 from starlette.requests import cookie_parser
 
 from app.db import SessionLocal
-from app.live_games import RunningGame, game_of, queue, running_games
+from app.live_games import (
+    RunningGame,
+    game_of,
+    legal_move,
+    queue,
+    running_games,
+    state_of,
+    whose_turn,
+)
 from app.models import Game, User
 from app.security import COOKIE_NAME, read_token
 
@@ -84,3 +92,33 @@ async def cancel_search(sid):
     user_id = (await sio.get_session(sid))["user_id"]
     if user_id in queue:
         queue.remove(user_id)
+        
+
+
+async def send_to_players(game: RunningGame, event: str, data: dict) -> None:
+    await sio.emit(event, data, room=f"user:{game.white_id}")
+    await sio.emit(event, data, room=f"user:{game.black_id}")
+
+
+async def reject(sid: str, reason: str) -> None:
+    await sio.emit("move_rejected", {"reason": reason}, to=sid)
+
+
+@sio.event
+async def move(sid, uci=None):
+    """A player moves, e.g. "e2e4" (from-square + to-square; "e7e8q" = pawn becomes a queen)."""
+    user_id = (await sio.get_session(sid))["user_id"]
+    game = game_of(user_id)
+    if game is None:
+        await reject(sid, "You are not in a game")
+        return
+    if whose_turn(game) != user_id:
+        await reject(sid, "Not your turn")
+        return
+    chess_move = legal_move(game.board, uci)
+    if chess_move is None:
+        await reject(sid, "Illegal move")
+        return
+
+    game.board.push(chess_move)
+    await send_to_players(game, "game_state", state_of(game))

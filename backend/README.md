@@ -177,7 +177,10 @@ Next:
 ## Tests
 
 The automatic tests are in `tests/`:
-- Each `test_*.py` file checks one part. For example, `test_auth.py` covers register, login, logout and bad tokens.
+- Each `test_*.py` file checks one part:
+  - `test_auth.py`: register, login, logout, bad tokens
+  - `test_sockets.py`: connecting, online status, matchmaking, moves
+  - `test_live_games.py`: chess helpers (whose turn, legal moves)
 - `configuration_tests.py` is the shared setup: the test database and the `client` fake browser. `pytest.ini` tells pytest to load it.
 
 Run them while the app is running. Run `make` first so the tests use your latest code:
@@ -192,3 +195,16 @@ Every test should say `PASSED`.
 - Run one file: `docker compose exec backend pytest -v tests/test_auth.py`
 - Run one test by name: `docker compose exec backend pytest -v -k test_logout`
 - To add a test, write a function whose name starts with `test_` in a `test_*.py` file. Give it a `client` parameter to get a fake browser that keeps cookies like a real one.
+
+## Live events (Socket.IO)
+
+Connect to `/socket.io` while logged in; the login cookie is sent automatically.
+
+| Direction | Event | Data |
+|---|---|---|
+| browser → server | `find_game` | nothing. Wait for an opponent |
+| browser → server | `cancel_search` | nothing. Stop waiting |
+| server → browser | `game_started` | `{game_id, white: {id, display_name, elo}, black: {...}}`. Your color: compare your id with `white.id` |
+| browser → server | `move` | `"e2e4"` (from + to square; `"e7e8q"` = promote to a queen) |
+| server → browser | `game_state` | `{game_id, fen, turn: "white"/"black", last_move}`. After every move, to both players |
+| server → browser | `move_rejected` | `{reason}`, only to you: "Not your turn", "Illegal move", "You are not in a game" |
