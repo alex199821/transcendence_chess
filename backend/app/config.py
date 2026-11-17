@@ -7,6 +7,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     database_url: str  # required: the app refuses to start if DATABASE_URL is missing
-
+    environment: str = "development" 
 
 settings = Settings()

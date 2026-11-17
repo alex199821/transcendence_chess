@@ -14,6 +14,7 @@ make                    # builds and starts everything
 Then open:
 - https://localhost:8443/api/health: should say `"status":"ok"`
 - https://localhost:8443/api/docs: a list of every endpoint, where you can click "Try it out" to test them
+- https://127.0.0.1:8443/api/dev/testing-ui: test page for the engine in development
 
 Chrome will warn about the certificate. That's normal: we make our own certificate for localhost. Click "Advanced", then "Proceed".
 
@@ -48,6 +49,10 @@ backend/
       helpers.py       get_current_user(): "who is logged in?"
       fake.py          made-up test data (see "Fake endpoints" below)
       routes/          the endpoints, one file per topic: auth, users, friends
+    game/
+      engine/          board behavior and move validation
+        game.py        game logic
+      
 ```
 
 ## Why we did it this way

@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes import auth, friends, games, stats, users
+from app.api.routes import auth, friends, games, stats, users, testing_ui
 from app.db import get_session
 
 app = FastAPI(
@@ -19,6 +19,7 @@ app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(games.router)
 app.include_router(stats.router)
+app.include_router(testing_ui.router)
 
 @app.get("/api/health")
 async def health(session: Annotated[AsyncSession, Depends(get_session)]) -> dict[str, str]:
